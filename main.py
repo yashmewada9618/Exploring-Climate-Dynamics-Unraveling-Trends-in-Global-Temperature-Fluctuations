@@ -8,9 +8,12 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.impute import SimpleImputer
 import numpy as np
+from sklearn.metrics import r2_score, mean_squared_error
 
 # Define the file path
-file_path = "/home/mewada/Documents/Global_TAVG_monthly.txt"
+file_path = "/home/mewada/Documents/Exploring-Climate-Dynamics-Unraveling-Trends-in-Global-Temperature-Fluctuations/datasets/Global_TAVG_monthly.txt"
+ghg_file_path = "/home/mewada/Documents/Exploring-Climate-Dynamics-Unraveling-Trends-in-Global-Temperature-Fluctuations/datasets/annual-co2-emissions-per-country.csv"
+soho_file_path = "/home/mewada/Documents/Exploring-Climate-Dynamics-Unraveling-Trends-in-Global-Temperature-Fluctuations/datasets/SOHO.txt"
 
 # Define lists to store data for each column
 years = []
@@ -74,6 +77,7 @@ data = {
 }
 
 df = pd.DataFrame(data)
+greenhouse_gas_data = pd.read_csv(ghg_file_path)
 
 # Perform imputation for missing values
 imputer = SimpleImputer(strategy="mean")
@@ -237,3 +241,65 @@ hotspots = mean_anomalies[mean_anomalies > hotspot_threshold]
 print("Identified Hotspots:")
 for year, anomaly in hotspots.iteritems():
     print(f"Year: {year}, Mean Temperature Anomaly: {anomaly:.2f}")
+
+euv_avg = []
+with open(soho_file_path, "r") as file:
+    reader = csv.reader(file, delimiter="\t")
+
+    # Skip the header row if it exists
+    next(reader, None)
+
+    # Iterate over each row in the file
+    for line_num, row in enumerate(reader, start=1):
+        # Check if the line number is less than 94
+        if line_num < 10:
+            continue
+        if row[0].startswith("%"):
+            continue
+
+        # Extract data from each row
+        try:
+            row_data = row[0].split()
+        except ValueError:
+            # If an exception occurs, it means the row contains non-numeric data
+            print("Non-numeric data detected in the row:")
+            continue
+
+        euv_avg.append(float(row_data[3]))
+
+
+merged_data = pd.merge(df, greenhouse_gas_data, on="Year", how="inner")
+merged_data = pd.merge(
+    merged_data,
+    pd.DataFrame(euv_avg, columns=["EUV Flux"]),
+    left_index=True,
+    right_index=True,
+)
+
+correlation_matrix = merged_data.corr()
+plt.figure(figsize=(10, 8))
+sns.heatmap(correlation_matrix, annot=True, cmap="coolwarm", fmt=".2f")
+plt.title("Correlation Matrix")
+plt.savefig("correlation_matrix.png")
+plt.show()
+
+X = merged_data[["EUV Flux", "Annual emissions"]]
+y = merged_data["Anomaly 1"]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Build and train a linear regression model
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Make predictions on the testing set
+y_pred = model.predict(X_test)
+
+# Evaluate the model
+r_squared = r2_score(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+
+print("R-squared:", r_squared)
+print("Mean Squared Error:", mse)
